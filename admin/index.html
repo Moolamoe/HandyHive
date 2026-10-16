@@ -22,6 +22,24 @@
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
 
+    // Ensure relative URLs resolve correctly by adding a base tag that points to the
+    // directory containing the fetched index.html (usually the repo root). This fixes
+    // broken asset/script/style loading when we serialize and write the modified doc.
+    try {
+      const indexUrl = new URL(indexPath, location.href);
+      const baseHref = indexUrl.origin + indexUrl.pathname.replace(/[^\/]*$/, '');
+      // remove any existing base tags
+      const existingBase = doc.querySelector('base');
+      if (existingBase) existingBase.remove();
+      const baseEl = doc.createElement('base');
+      baseEl.setAttribute('href', baseHref);
+      const head = doc.querySelector('head');
+      if (head) head.insertBefore(baseEl, head.firstChild);
+    } catch(e) {
+      // ignore base tag failures
+      console.warn('Could not set base href for admin preview', e);
+    }
+
     // Mark admin mode
     const body = doc.querySelector('body');
     if (body) body.setAttribute('data-admin', 'true');
