@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HandyHive — Admin</title>
+  <meta name="robots" content="noindex">
+</head>
+<body>
+<script>
+// Loads the main site HTML and enables admin mode by injecting data-admin="true" on <body>.
+// This keeps the admin copy small and always in sync with index.html.
+(async function(){
+  try {
+    const res = await fetch('./index.html', {cache: 'no-store'});
+    if(!res.ok) throw new Error('Failed to fetch index.html: '+res.status);
+    let txt = await res.text();
+    // Inject data-admin="true" into the first <body> tag
+    txt = txt.replace(/<body([^>]*)>/i, '<body$1 data-admin="true">');
+    // Write modified HTML into this document
+    document.open();
+    document.write(txt);
+    document.close();
+  } catch(err) {
+    document.body.innerHTML = '<h1>Admin page load failed</h1><pre style="white-space:pre-wrap">'+err.message+'</pre>';
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
