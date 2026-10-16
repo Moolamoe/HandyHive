@@ -12,11 +12,17 @@
 // This keeps the admin copy small and always in sync with index.html.
 (async function(){
   try {
-    const res = await fetch('./index.html', {cache: 'no-store'});
+    // Choose the correct path for the root index.html so we don't accidentally fetch this admin page.
+    const isAdminPath = location.pathname.split('/').some(segment => segment.toLowerCase() === 'admin');
+    const indexPath = isAdminPath ? '../index.html' : './index.html';
+
+    const res = await fetch(indexPath, {cache: 'no-store'});
     if(!res.ok) throw new Error('Failed to fetch index.html: '+res.status);
     let txt = await res.text();
-    // Inject data-admin="true" into the first <body> tag
+
+    // Inject data-admin="true" into the first <body> tag (preserve attributes if present)
     txt = txt.replace(/<body([^>]*)>/i, '<body$1 data-admin="true">');
+
     // Write modified HTML into this document
     document.open();
     document.write(txt);
