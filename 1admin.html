@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://api.github.com; base-uri 'none'; form-action 'self'; object-src 'none'">
+  <title>HandyHive | Website Management</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#172d34;background:#f3f7f6;font-size:16px}
+    *{box-sizing:border-box}body{margin:0}header{background:#172d34;color:#fff;padding:22px 24px}header h1{margin:0;font-size:1.4rem}header p{margin:4px 0 0;color:#bfe2d9;font-size:.9rem}
+    main{max-width:860px;margin:28px auto;padding:0 16px 50px}.card{background:#fff;border:1px solid #dce7e5;border-radius:14px;padding:26px;box-shadow:0 6px 30px #172d3410;margin-bottom:18px}
+    h2{margin:0 0 8px;font-size:1.3rem}p{line-height:1.5}label{display:block;font-weight:650;margin:15px 0 6px}
+    input,select,button{font:inherit}input:not([type="checkbox"]),select{width:100%;border:1px solid #9baeb0;border-radius:7px;padding:11px;background:#fff;color:inherit}
+    input:focus,select:focus,button:focus-visible{outline:3px solid #7dd6bb;outline-offset:2px}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.help{font-size:.88rem;color:#4f636a}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+    button{border:0;border-radius:8px;background:#13745c;color:#fff;padding:11px 16px;font-weight:650;cursor:pointer}
+    button.secondary{background:#e4efec;color:#174a41}button.danger{background:#8f3030}button:disabled{opacity:.5;cursor:progress}
+    #status{min-height:24px;font-weight:550;white-space:pre-wrap}#status.error{color:#a12a2a}#status.success{color:#13745c}
+    #preview{border:1px dashed #c5d4d3;min-height:84px;margin-top:18px;padding:12px;display:grid;place-items:center;border-radius:10px;color:#63767c}
+    #preview img{display:block;max-width:100%;max-height:310px;object-fit:contain}
+    [hidden]{display:none!important}.tag{display:inline-block;padding:5px 10px;border-radius:20px;background:#def4e9;color:#116144;font-size:.85rem;font-weight:700}
+    footer{max-width:860px;margin:0 auto 30px;padding:0 16px;color:#64767b;font-size:.84rem}
+    @media(max-width:560px){.cols{grid-template-columns:1fr}.card{padding:19px}}
+  </style>
+</head>
+<body>
+  <header><h1>HandyHive website management</h1><p>Image publishing for the GitHub Pages website</p></header>
+  <main>
+    <section class="card" id="connect-card">
+      <h2>Connect to your GitHub repository</h2>
+      <p>Sign in using a GitHub fine-grained personal access token. The token must have <strong>Contents: Read and write</strong> access to the website repository.</p>
+      <form id="connect-form">
+        <div class="cols">
+          <div><label for="owner">GitHub account / owner</label><input id="owner" required autocomplete="off" placeholder="your-username"></div>
+          <div><label for="repo">Repository name</label><input id="repo" required autocomplete="off" placeholder="your-website-repo"></div>
+        </div>
+        <label for="token">Fine-grained access token</label>
+        <input id="token" type="password" required autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+        <p class="help">Your token stays in this open tab's memory only. It is not saved to the website, browser storage, or Git repository. Closing or reloading this tab disconnects you.</p>
+        <button type="submit" id="connect">Connect securely</button>
+      </form>
+    </section>
+    <section class="card" id="editor-card" hidden>
+      <div class="actions" style="justify-content:space-between;align-items:center;margin-top:0">
+        <div><span class="tag">Connected</span> <strong id="repo-label"></strong><p class="help" id="branch-label" style="margin:6px 0"></p></div>
+        <button class="secondary" type="button" id="disconnect">Disconnect</button>
+      </div>
+      <h2 style="margin-top:18px">Manage website images</h2>
+      <p>Choose an image position, then publish an upload. Images are committed to GitHub and will be available to all website visitors when GitHub Pages finishes publishing.</p>
+      <label for="slot">Image position</label><select id="slot"></select>
+      <label for="alt">Image description (accessibility)</label><input id="alt" maxlength="180" placeholder="Describe what is shown">
+      <label for="file">Replacement image (JPG, PNG or WebP; maximum 5 MB)</label>
+      <input id="file" type="file" accept="image/jpeg,image/png,image/webp">
+      <div class="actions">
+        <button type="button" id="save">Publish image</button>
+        <button type="button" class="danger" id="remove">Remove replacement</button>
+      </div>
+      <div id="preview"><span>No replacement uploaded for this position.</span></div>
+      <hr style="border:0;border-top:1px solid #e4eeeb;margin-top:24px">
+      <h2 style="font-size:1.1rem;margin-top:18px">Previously uploaded images</h2>
+      <p class="help">If you uploaded pictures using the older site, they may still exist in this browser only. Use this once to publish them permanently. It works only in the same browser and site address where they were originally uploaded.</p>
+      <button id="import-legacy" class="secondary" type="button">Import previous browser images</button>
+    </section>
+    <section class="card" aria-live="polite"><p id="status" role="status">Connect to your repository to manage images.</p></section>
+  </main>
+  <footer>Admin interface is intentionally not linked from the public site. It is publicly reachable by its URL, but editing requires a GitHub token with repository write permission.</footer>
+  <script src="../assets/admin.js" defer></script>
+</body>
+</html>
