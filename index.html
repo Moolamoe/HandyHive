@@ -95,47 +95,24 @@
 })();
 </script>
 
-<!-- Remove any visible admin/dashboard buttons so admin is only reachable by direct URL -->
+<!-- Remove only exact admin links so we don't accidentally remove unrelated elements -->
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   try {
-    // Remove anchors linking to /admin or admin/index.html
     Array.from(document.querySelectorAll('a[href]')).forEach(function(a){
       try{
         const href = a.getAttribute('href') || '';
-        const url = href.trim();
-        if (!url) return;
-        if (url.includes('/admin') || url.includes('admin/index.html') || /(^|\/)admin(\/|$|\?)/i.test(url)){
+        if (!href.trim()) return;
+        // Resolve relative URLs safely
+        let resolved;
+        try { resolved = new URL(href, location.href); } catch(e){ return; }
+        const path = resolved.pathname.replace(/\/+$|\/+$/, ''); // trim trailing slashes
+        if (path === '/admin' || path === '/admin/index.html' || path.endsWith('/admin') || path.endsWith('/admin/index.html')){
           a.remove();
         }
       }catch(e){}
     });
-
-    // Remove buttons or elements that may navigate to admin (onclick, data-href, dataset entries)
-    Array.from(document.querySelectorAll('button, [role="button"]')).forEach(function(btn){
-      try{
-        const onclick = (btn.getAttribute && btn.getAttribute('onclick')) || '';
-        const dataHref = (btn.getAttribute && btn.getAttribute('data-href')) || btn.dataset && Object.values(btn.dataset).join(' ') || '';
-        if (onclick.includes('/admin') || onclick.toLowerCase().includes('admin') || dataHref.includes('/admin') || /(^|\/)admin(\/|$|\?)/i.test(dataHref)){
-          btn.remove();
-        }
-      }catch(e){}
-    });
-
-    // As a final safety, remove any element with id/class containing 'admin' (case-insensitive)
-    Array.from(document.querySelectorAll('[id], [class]')).forEach(function(el){
-      try{
-        const id = el.id || '';
-        const cls = el.className || '';
-        if (/admin/i.test(id) || /admin/i.test(cls)){
-          // but avoid removing elements that are clearly not controls, so only remove if it's a link/button or contains admin text
-          if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.closest('a') || el.closest('button')){
-            el.remove();
-          }
-        }
-      }catch(e){}
-    });
-  } catch(e){ console.warn('Remove admin button script failed', e); }
+  } catch(e){ console.warn('Remove admin link script failed', e); }
 });
 </script>
 
