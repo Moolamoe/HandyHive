@@ -9,22 +9,27 @@
 (function(){
   try {
     if (new URLSearchParams(location.search).get('__admin') !== '1') return;
-    // Mark admin mode early
-    document.documentElement.setAttribute('data-admin', 'true');
+    // Mark admin mode early on both <html> and <body> (body may not exist yet)
+    try { document.documentElement.setAttribute('data-admin', 'true'); } catch(e){}
+    if (document.body) {
+      document.body.dataset.admin = 'true';
+    } else {
+      document.addEventListener('DOMContentLoaded', function(){ try{ document.body.dataset.admin = 'true'; }catch(e){} });
+    }
 
     // Minimal network-first IndexedDB shim for /api/media
     (function(){
       function openDB(){
         return new Promise((resolve,reject)=>{
           const r = indexedDB.open('handyhive:'+new URL('.', location.href).pathname, 1);
-          r.onupgradeneeded = ()=>{ try { r.result.createObjectStore('settings'); } catch(e){} };
-          r.onsuccess = ()=>resolve(r.result);
-          r.onerror = ()=>reject(r.error);
+          r.onupgradeneeded = function(){ try { r.result.createObjectStore('settings'); } catch(e){} };
+          r.onsuccess = function(){ resolve(r.result); };
+          r.onerror = function(){ reject(r.error); };
         });
       }
-      async function readMedia(){ const db = await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readonly'); const req=tx.objectStore('settings').get('media'); req.onsuccess=()=>res(req.result||[]); req.onerror=()=>rej(req.error); }); }
-      async function writeMedia(list){ const db = await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readwrite'); tx.objectStore('settings').put(list,'media'); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
-      function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(file); }); }
+      async function readMedia(){ const db = await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readonly'); const req=tx.objectStore('settings').get('media'); req.onsuccess=function(){ res(req.result||[]); }; req.onerror=function(){ rej(req.error); }; }); }
+      async function writeMedia(list){ const db = await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readwrite'); tx.objectStore('settings').put(list,'media'); tx.oncomplete=function(){ res(); }; tx.onerror=function(){ rej(tx.error); }; }); }
+      function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=function(){ res(r.result); }; r.onerror=function(){ rej(r.error); }; r.readAsDataURL(file); }); }
 
       async function handleMediaRequest(method, body){
         method = (method||'GET').toUpperCase();
@@ -175,5 +180,4 @@ body {
   background: var(--page);
   -webkit-font-smoothing: antialiased;
 }
-img, svg { max-width: 100%; display: block; }
 ... (rest of original index.html continues unchanged)
