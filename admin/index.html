@@ -26,148 +26,55 @@
       </div>
     </header>
     <main>
-      <iframe id="preview" title="Site preview"></iframe>
+      <!-- Use same-origin URL with admin flag so iframe shares IndexedDB and origin -->
+      <iframe id="preview" src="../index.html?__admin=1" title="Site preview"></iframe>
     </main>
   </div>
 
 <script>
-// Admin loader: fetch the public index.html, inject admin shim before any site scripts run,
-// then set iframe.srcdoc so the iframe executes the modified HTML with shim in place.
 (async function(){
   const iframe = document.getElementById('preview');
   const refresh = document.getElementById('refresh');
   const clear = document.getElementById('clear');
 
-  async function fetchIndex() {
-    const isAdminPath = location.pathname.split('/').some(segment => segment.toLowerCase() === 'admin');
-    const indexPath = isAdminPath ? '../index.html' : './index.html';
-    const res = await fetch(indexPath, {cache: 'no-store'});
-    if (!res.ok) throw new Error('Failed to fetch index.html: ' + res.status);
-    return { text: await res.text(), url: res.url };
-  }
+  // Refresh preview with cache-buster
+  refresh.addEventListener('click', ()=>{
+    const src = iframe.src.split('?')[0];
+    iframe.src = src + '?__admin=1&_=' + Date.now();
+  });
 
-  function buildShimCode() {
-    // Shim code as a single string; avoid literal </script> by not including it.
-    return `
-(function(){
-  try{
-    const siteRoot = new URL(document.body.dataset.admin==='true' ? '../' : './', location.href).pathname;
-    function openDB(){
-      return new Promise((resolve,reject)=>{
-        const r=indexedDB.open('handyhive:'+siteRoot,1);
-        r.onupgradeneeded=()=>{ try{ r.result.createObjectStore('settings'); }catch(e){} };
-        r.onsuccess=()=>resolve(r.result);
-        r.onerror=()=>reject(r.error);
-      });
-    }
-    async function readMedia(){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readonly'); const req=tx.objectStore('settings').get('media'); req.onsuccess=()=>res(req.result||[]); req.onerror=()=>rej(req.error); }); }
-    async function writeMedia(list){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readwrite'); tx.objectStore('settings').put(list,'media'); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
-    function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(file); }); }
-    async function handleMediaRequest(method, body){
-      method=(method||'GET').toUpperCase();
-      if(method==='GET'){
-        try{
-          const net = await (window.__origFetch?window.__origFetch('/api/media',{cache:'no-store'}):fetch('/api/media',{cache:'no-store'}));
-          if(net && net.ok){ const j = await net.json(); try{ await writeMedia(j); }catch(e){} return {status:200,json:j}; }
-        }catch(e){}
-        const local = await readMedia(); return {status:200,json:local};
-      }
-      if(method==='POST'){
-        if(!(body instanceof FormData)) throw new Error('POST /api/media expects FormData');
-        const file = body.get('file'); const slot = body.get('slot') || 'hero';
-        if(!(file instanceof File)) throw new Error('Choose an image first');
-        if(!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Please choose JPG, PNG or WebP images.');
-        if(file.size > 5*1024*1024) throw new Error('Image must be under 5MB');
-        const data = await fileToDataURL(file);
-        const item = { slot, id: String(Date.now()), data, type: file.type, name: file.name, updated_at: new Date().toISOString() };
-        const list = await readMedia(); const idx = list.findIndex(m=>m.slot===slot); if(idx>=0) list[idx]=item; else list.push(item);
-        await writeMedia(list);
-        return {status:201,json:item};
-      }
-      return {status:405,json:{error:'Method not allowed'}};
-    }
-
-    if(!window.api){
-      window.api = async function(url, options={}){
-        const method = (options && options.method) ? options.method.toUpperCase() : 'GET';
-        if(url==='/api/media') return (await handleMediaRequest(method, options && options.body)).json;
-        const r = await (window.__origFetch?window.__origFetch(url,options):fetch(url,options));
-        if(!r.ok) throw new Error('Network error '+r.status);
-        try{ return await r.json(); }catch(e){ return null; }
-      };
-    }
-
-    if(!window.__origFetch){
-      window.__origFetch = window.fetch.bind(window);
-      window.fetch = async function(input, init){
-        try{
-          const url = (typeof input === 'string') ? input : (input && input.url) || '';
-          const pathname = new URL(url, location.href).pathname;
-          if(pathname === '/api/media'){
-            const method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
-            const body = (init && init.body) || (typeof input !== 'string' && input && input.body) || null;
-            const res = await handleMediaRequest(method, body);
-            return new Response(JSON.stringify(res.json), { status: res.status, headers: {'Content-Type':'application/json'} });
-          }
-        }catch(e){ console.warn('fetch shim error', e); }
-        return window.__origFetch(input, init);
-      };
-    }
-
-    console.log('Admin: /api/media shim active (IndexedDB fallback)');
-  }catch(e){ console.warn('Admin patch failed', e); }
-})();
-`;
-  }
-
-  async function buildAdminPreview(){
-    try{
-      const {text, url} = await fetchIndex();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, 'text/html');
-
-      // add base href so relative assets/scripts work from same location as fetched file
-      try{
-        const baseHref = new URL(url).origin + new URL(url).pathname.replace(/[^\/]*$/, '');
-        const existingBase = doc.querySelector('base');
-        if(existingBase) existingBase.remove();
-        const baseEl = doc.createElement('base');
-        baseEl.setAttribute('href', baseHref);
-        const head = doc.querySelector('head');
-        if(head) head.insertBefore(baseEl, head.firstChild);
-      }catch(e){ console.warn('base tag setup failed', e); }
-
-      // mark admin mode on body
-      const body = doc.querySelector('body'); if(body) body.setAttribute('data-admin','true');
-
-      // inject shim as script node before existing scripts run (place at end of head)
-      const shimScript = doc.createElement('script');
-      shimScript.type = 'text/javascript';
-      shimScript.textContent = buildShimCode();
-      const head = doc.querySelector('head') || doc.documentElement;
-      head.appendChild(shimScript);
-
-      // serialize and set iframe.srcdoc
-      const out = '<!doctype html>\n' + doc.documentElement.outerHTML;
-      iframe.srcdoc = out;
-
-    }catch(err){
-      console.error('Failed to build admin preview', err);
-      iframe.srcdoc = '<!doctype html><body><h1>Failed to load admin preview</h1><pre>'+String(err)+'</pre></body>';
-    }
-  }
-
-  refresh.addEventListener('click', ()=> buildAdminPreview());
+  // Clear stored images from IndexedDB used by the site
   clear.addEventListener('click', async ()=>{
     try{
       const siteRoot = new URL('.', location.href).pathname;
-      await (async function(){ const db = await (new Promise((resolve,reject)=>{ const r=indexedDB.open('handyhive:'+siteRoot,1); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error); })); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readwrite'); tx.objectStore('settings').delete('media'); tx.oncomplete=res; tx.onerror=rej; }); })();
+      await new Promise((resolve,reject)=>{
+        const r = indexedDB.open('handyhive:'+siteRoot, 1);
+        r.onsuccess = ()=>{
+          const db = r.result;
+          const tx = db.transaction('settings','readwrite');
+          tx.objectStore('settings').delete('media');
+          tx.oncomplete = ()=>{ resolve(); };
+          tx.onerror = ()=>{ reject(tx.error); };
+        };
+        r.onerror = ()=>reject(r.error);
+      });
       alert('Cleared stored images from IndexedDB. Refresh the preview to see changes.');
     }catch(e){ console.error(e); alert('Failed to clear: '+e.message); }
   });
 
-  // initial build
-  buildAdminPreview();
+  // Optionally: ensure iframe is same-origin and shim active
+  iframe.addEventListener('load', ()=>{
+    try{
+      const win = iframe.contentWindow;
+      if(!win) return;
+      // Check shim indicator (console may show it); expose simple status via postMessage
+      // Ask iframe if admin shim is installed
+      try{
+        const hasShim = !!win.__origFetch || !!win.api;
+        if(!hasShim) console.warn('Admin shim not detected inside iframe - ensure index.html has the admin bootstrap and ?__admin=1 is honored');
+      }catch(e){ console.warn('Could not detect shim status (cross-origin?):', e); }
+    }catch(e){ console.error('Error during iframe load handling', e); }
+  });
 
 })();
 </script>
