@@ -8,43 +8,112 @@
 </head>
 <body>
 <script>
-// Loads the main site HTML and enables admin mode by injecting data-admin="true" on <body>.
-// This keeps the admin copy small and always in sync with index.html.
 (async function(){
   try {
-    // Choose the correct path for the root index.html so we don't accidentally fetch this admin page.
+    // Determine index.html path relative to /admin
     const isAdminPath = location.pathname.split('/').some(segment => segment.toLowerCase() === 'admin');
     const indexPath = isAdminPath ? '../index.html' : './index.html';
 
     const res = await fetch(indexPath, {cache: 'no-store'});
-    if(!res.ok) throw new Error('Failed to fetch index.html: '+res.status);
-    let txt = await res.text();
+    if (!res.ok) throw new Error('Failed to fetch index.html: ' + res.status);
+    const htmlText = await res.text();
 
-    // Inject data-admin="true" into the first <body> tag (preserve attributes if present)
-    txt = txt.replace(/<body([^>]*)>/i, '<body$1 data-admin="true">');
+    // Parse the fetched HTML so we can inject attributes and a script safely
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
 
-    // Patch injected HTML with a small admin-only script that provides image persistence
-    // and an IndexedDB-backed fallback for /api/media so the admin UI works on static hosting.
-    const adminPatch = `\n<script>\n(function(){\n  try{\n    // siteRoot scoped key for IndexedDB to avoid collisions between deploys/paths\n    const siteRoot = new URL(document.body.dataset.admin==='true'?'../':'./', location.href).pathname;\n\n    // IndexedDB helpers\n    function openDB(){\n      return new Promise((resolve,reject)=>{\n        const r=indexedDB.open('handyhive:'+siteRoot,1);\n        r.onupgradeneeded=()=>{ try{ r.result.createObjectStore('settings'); }catch(e){} };\n        r.onsuccess=()=>resolve(r.result);\n        r.onerror=()=>reject(r.error);\n      });\n    }\n    async function readMedia(){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readonly'); const req=tx.objectStore('settings').get('media'); req.onsuccess=()=>res(req.result||[]); req.onerror=()=>rej(req.error); }); }\n    async function writeMedia(list){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction('settings','readwrite'); tx.objectStore('settings').put(list,'media'); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }\n\n    // Convert File -> dataURL (with promise)
-    function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(file); }); }
-\n    // Handler for /api/media with GET and POST supported locally
-    async function handleMediaRequest(method, body){\n      method = method.toUpperCase();\n      if (method === 'GET') {\n        try{ // try network first\n          const r = await window.__origFetch('/api/media', {cache: 'no-store'});\n          if (r && r.ok) {\n            const json = await r.json();\n            try{ await writeMedia(json); }catch(e){}\n            return {status: 200, json};\n          }\n        }catch(e){}\n        // fallback to indexedDB\n        const local = await readMedia();\n        return {status: 200, json: local};\n      }\n\n      if (method === 'POST') {\n        // Expect FormData with 'file' and optional 'slot'\n        if (!(body instanceof FormData)) throw new Error('POST /api/media expects FormData');\n        const file = body.get('file');\n        const slot = body.get('slot') || 'hero';\n        if (!(file instanceof File)) throw new Error('Choose an image first');\n        if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Please choose JPG, PNG or WebP images.');\n        if (file.size > 5*1024*1024) throw new Error('Image must be under 5MB');\n        const data = await fileToDataURL(file);\n        const item = { slot, id: String(Date.now()), data, type: file.type, name: file.name, updated_at: new Date().toISOString() };
-        // store locally
-        const list = await readMedia();\n        const idx = list.findIndex(m=>m.slot===slot);\n        if (idx>=0) list[idx]=item; else list.push(item);\n        await writeMedia(list);\n        return {status: 201, json: item};\n      }\n\n      return {status: 405, json: {error: 'Method not allowed'}};\n    }\n\n    // Expose a window.api helper used by the site code. If an api already exists, keep it.
-    if (!window.api){\n      window.api = async function(url, options={}){\n        const method = (options.method||'GET').toUpperCase();\n        if (url === '/api/media') {\n          return (await handleMediaRequest(method, options.body)).json;\n        }\n        // otherwise fallback to network fetch
-        const r = await window.__origFetch(url, options);\n        if (!r.ok) throw new Error('Network error '+r.status);\n        try { return await r.json(); } catch(e){ return null; }\n      }\n    }\n\n    // Monkey-patch fetch so code that uses fetch('/api/media') also works
-    if (!window.__origFetch){\n      window.__origFetch = window.fetch.bind(window);\n      window.fetch = async function(input, init){\n        try{\n          const url = (typeof input === 'string') ? input : (input && input.url) || '' ;\n          const pathname = new URL(url, location.href).pathname;\n          if (pathname === '/api/media') {\n            const method = (init && init.method) || (typeof input !== 'string' && input.method) || 'GET';\n            const body = init && init.body || (typeof input !== 'string' && input.body) || null;\n            const res = await handleMediaRequest(method, body);\n            // Create a minimal Response-like object for compatibility\n            return new Response(JSON.stringify(res.json), { status: res.status, headers: { 'Content-Type': 'application/json' } });\n          }\n        }catch(e){ console.warn('fetch shim error', e); }
-        return window.__origFetch(input, init);\n      }\n    }\n\n    console.log('Admin: /api/media shim active (IndexedDB fallback)');\n  }catch(e){ console.warn('Admin patch failed', e); }\n})();\n</script>\n`;
+    // Mark admin mode
+    const body = doc.querySelector('body');
+    if (body) body.setAttribute('data-admin', 'true');
 
-    // Insert the patch just before the closing </body> so it runs after the page loads
-    txt = txt.replace(/<\/body>/i, adminPatch + '</body>');
+    // Build the admin shim code as a string.
+    // IMPORTANT: never include the literal "</script>" inside this string,
+    // because that would prematurely terminate this outer script tag.
+    // We avoid that by joining lines and replacing any occurrence if present.
+    const shimLines = [
+      "(function(){",
+      "  try {",
+      "    const siteRoot = new URL(document.body.dataset.admin==='true' ? '../' : './', location.href).pathname;",
+      "    function openDB(){",
+      "      return new Promise((resolve,reject)=>{",
+      "        const r = indexedDB.open('handyhive:' + siteRoot, 1);",
+      "        r.onupgradeneeded = () => { try { r.result.createObjectStore('settings'); } catch(e){} };",
+      "        r.onsuccess = () => resolve(r.result);",
+      "        r.onerror = () => reject(r.error);",
+      "      });",
+      "    }",
+      "    async function readMedia(){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction('settings','readonly'); const req = tx.objectStore('settings').get('media'); req.onsuccess = ()=>res(req.result||[]); req.onerror = ()=>rej(req.error); }); }",
+      "    async function writeMedia(list){ const db = await openDB(); return new Promise((res,rej)=>{ const tx = db.transaction('settings','readwrite'); tx.objectStore('settings').put(list,'media'); tx.oncomplete = ()=>res(); tx.onerror = ()=>rej(tx.error); }); }",
+      "    function fileToDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(file); }); }",
+      "    async function handleMediaRequest(method, body){",
+      "      method = (method||'GET').toUpperCase();",
+      "      if (method === 'GET') {",
+      "        try {",
+      "          const net = await (window.__origFetch ? window.__origFetch('/api/media', {cache:'no-store'}) : fetch('/api/media', {cache:'no-store'}));",
+      "          if (net && net.ok) { const j = await net.json(); try{ await writeMedia(j); }catch(e){} return {status:200, json:j}; }",
+      "        } catch(e){}",
+      "        const local = await readMedia(); return {status:200, json:local};",
+      "      }",
+      "      if (method === 'POST') {",
+      "        if (!(body instanceof FormData)) throw new Error('POST /api/media expects FormData');",
+      "        const file = body.get('file'); const slot = body.get('slot') || 'hero';",
+      "        if (!(file instanceof File)) throw new Error('Choose an image first');",
+      "        if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Please choose JPG, PNG or WebP images.');",
+      "        if (file.size > 5*1024*1024) throw new Error('Image must be under 5MB');",
+      "        const data = await fileToDataURL(file);",
+      "        const item = { slot, id: String(Date.now()), data, type: file.type, name: file.name, updated_at: new Date().toISOString() };",
+      "        const list = await readMedia(); const idx = list.findIndex(m=>m.slot===slot); if (idx>=0) list[idx]=item; else list.push(item);",
+      "        await writeMedia(list); return {status:201, json:item};",
+      "      }",
+      "      return {status:405, json:{error:'Method not allowed'}};",
+      "    }",
+      "    if (!window.api) {",
+      "      window.api = async function(url, options={}){",
+      "        const method = (options && options.method) ? options.method.toUpperCase() : 'GET';",
+      "        if (url === '/api/media') return (await handleMediaRequest(method, options && options.body)).json;",
+      "        const r = await (window.__origFetch ? window.__origFetch(url, options) : fetch(url, options));",
+      "        if (!r.ok) throw new Error('Network error '+r.status);",
+      "        try{ return await r.json(); } catch(e){ return null; }",
+      "      };",
+      "    }",
+      "    if (!window.__origFetch){",
+      "      window.__origFetch = window.fetch.bind(window);",
+      "      window.fetch = async function(input, init){",
+      "        try{",
+      "          const url = (typeof input === 'string') ? input : (input && input.url) || '';",
+      "          const pathname = new URL(url, location.href).pathname;",
+      "          if (pathname === '/api/media') {",
+      "            const method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';",
+      "            const body = (init && init.body) || (typeof input !== 'string' && input && input.body) || null;",
+      "            const res = await handleMediaRequest(method, body);",
+      "            return new Response(JSON.stringify(res.json), { status: res.status, headers: {'Content-Type':'application/json'} });",
+      "          }",
+      "        }catch(e){ console.warn('fetch shim error', e); }",
+      "        return window.__origFetch(input, init);",
+      "      };",
+      "    }",
+      "    console.log('Admin: /api/media shim active (IndexedDB fallback)');",
+      "  } catch(e) { console.warn('Admin patch failed', e); }",
+      "})();"
+    ];
 
-    // Write modified HTML into this document
+    // Join, and ensure we never produce the literal "</script>" inside this outer script.
+    let shimCode = shimLines.join('\n');
+    shimCode = shimCode.replace(/<\/script>/ig, '<' + '/script>');
+
+    // Create a new script element inside the fetched document and set its text content safely.
+    const scriptEl = doc.createElement('script');
+    scriptEl.textContent = shimCode;
+    // Append it to <body> (or to documentElement if body absent)
+    (doc.body || doc.documentElement).appendChild(scriptEl);
+
+    // Serialize and write the modified document
+    const out = '<!doctype html>\n' + doc.documentElement.outerHTML;
     document.open();
-    document.write(txt);
+    document.write(out);
     document.close();
   } catch(err) {
-    document.body.innerHTML = '<h1>Admin page load failed</h1><pre style="white-space:pre-wrap">'+err.message+'</pre>';
+    document.body.innerHTML = '<h1>Admin page load failed</h1><pre style="white-space:pre-wrap">' + err.message + '</pre>';
     console.error(err);
   }
 })();
