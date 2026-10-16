@@ -5,77 +5,32 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>HandyHive — Admin</title>
   <meta name="robots" content="noindex">
-  <style>
-    html,body{height:100%;margin:0}
-    .frame-wrap{height:100vh;display:flex;flex-direction:column}
-    header{background:#16262e;color:#fff;padding:12px 16px;font-family:system-ui,Arial,sans-serif;display:flex;align-items:center;gap:12px}
-    header .title{font-weight:700}
-    main{flex:1;display:block}
-    iframe{width:100%;height:100%;border:0;display:block}
-    .controls{margin-left:auto;display:flex;gap:8px}
-    .btn{background:#e0703a;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer}
-  </style>
 </head>
 <body>
-  <div class="frame-wrap">
-    <header>
-      <div class="title">HandyHive — Admin</div>
-      <div class="controls">
-        <button id="refresh" class="btn">Refresh</button>
-        <button id="clear" class="btn">Clear stored images</button>
-      </div>
-    </header>
-    <main>
-      <!-- Use same-origin URL with admin flag so iframe shares IndexedDB and origin -->
-      <iframe id="preview" src="../index.html?__admin=1" title="Site preview"></iframe>
-    </main>
-  </div>
-
 <script>
+// Loads the main site HTML and enables admin mode by injecting data-admin="true" on <body>.
+// This keeps the admin copy small and always in sync with index.html.
 (async function(){
-  const iframe = document.getElementById('preview');
-  const refresh = document.getElementById('refresh');
-  const clear = document.getElementById('clear');
+  try {
+    // Choose the correct path for the root index.html so we don't accidentally fetch this admin page.
+    const isAdminPath = location.pathname.split('/').some(segment => segment.toLowerCase() === 'admin');
+    const indexPath = isAdminPath ? '../index.html' : './index.html';
 
-  // Refresh preview with cache-buster
-  refresh.addEventListener('click', ()=>{
-    const src = iframe.src.split('?')[0];
-    iframe.src = src + '?__admin=1&_=' + Date.now();
-  });
+    const res = await fetch(indexPath, {cache: 'no-store'});
+    if(!res.ok) throw new Error('Failed to fetch index.html: '+res.status);
+    let txt = await res.text();
 
-  // Clear stored images from IndexedDB used by the site
-  clear.addEventListener('click', async ()=>{
-    try{
-      const siteRoot = new URL('.', location.href).pathname;
-      await new Promise((resolve,reject)=>{
-        const r = indexedDB.open('handyhive:'+siteRoot, 1);
-        r.onsuccess = ()=>{
-          const db = r.result;
-          const tx = db.transaction('settings','readwrite');
-          tx.objectStore('settings').delete('media');
-          tx.oncomplete = ()=>{ resolve(); };
-          tx.onerror = ()=>{ reject(tx.error); };
-        };
-        r.onerror = ()=>reject(r.error);
-      });
-      alert('Cleared stored images from IndexedDB. Refresh the preview to see changes.');
-    }catch(e){ console.error(e); alert('Failed to clear: '+e.message); }
-  });
+    // Inject data-admin="true" into the first <body> tag (preserve attributes if present)
+    txt = txt.replace(/<body([^>]*)>/i, '<body$1 data-admin="true">');
 
-  // Optionally: ensure iframe is same-origin and shim active
-  iframe.addEventListener('load', ()=>{
-    try{
-      const win = iframe.contentWindow;
-      if(!win) return;
-      // Check shim indicator (console may show it); expose simple status via postMessage
-      // Ask iframe if admin shim is installed
-      try{
-        const hasShim = !!win.__origFetch || !!win.api;
-        if(!hasShim) console.warn('Admin shim not detected inside iframe - ensure index.html has the admin bootstrap and ?__admin=1 is honored');
-      }catch(e){ console.warn('Could not detect shim status (cross-origin?):', e); }
-    }catch(e){ console.error('Error during iframe load handling', e); }
-  });
-
+    // Write modified HTML into this document
+    document.open();
+    document.write(txt);
+    document.close();
+  } catch(err) {
+    document.body.innerHTML = '<h1>Admin page load failed</h1><pre style="white-space:pre-wrap">'+err.message+'</pre>';
+    console.error(err);
+  }
 })();
 </script>
 </body>
